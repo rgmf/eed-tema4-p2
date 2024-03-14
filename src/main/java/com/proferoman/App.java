@@ -6,6 +6,7 @@ import com.almasb.fxgl.app.GameApplication;
 import com.almasb.fxgl.app.GameSettings;
 import com.almasb.fxgl.core.math.Vec2;
 import com.almasb.fxgl.dsl.FXGL;
+import com.almasb.fxgl.dsl.components.AutoRotationComponent;
 import com.almasb.fxgl.entity.Entity;
 import com.almasb.fxgl.entity.components.CollidableComponent;
 import com.almasb.fxgl.physics.CollisionHandler;
@@ -14,38 +15,72 @@ import javafx.scene.shape.Circle;
 import javafx.scene.paint.Color;
 import javafx.scene.input.KeyCode;
 import javafx.scene.text.Text;
+import javafx.util.Duration;
 
 public class App extends GameApplication {
+	private static int W = 800;
+	private static int H = 800;
+
+	private Game game;
 	private Entity player;
 
     @Override
     protected void initSettings(GameSettings settings) {
-        settings.setWidth(600);
-        settings.setHeight(600);
-        settings.setTitle("Basic Game App");
-        settings.setVersion("0.1");
+        settings.setWidth(W);
+        settings.setHeight(H);
+        settings.setTitle("EED: UML: Game App");
+        settings.setVersion("0.0.1");
     }
 
 	@Override
 	protected void initGame() {
+		game = Game.newInstance(W, H);
+		Player gamePlayer = game.getPlayer();
+		Canyon canyon = game.getCanyon();
+
 		player = FXGL.entityBuilder()
-			.type(EntityType.PLAYER)
-			.at(300, 300)
-			.viewWithBBox("actor.png")
+			.type(ActorType.PLAYER)
+			.at(gamePlayer.getX(), gamePlayer.getY())
+			.viewWithBBox(FXGL.texture(gamePlayer.getTexture(), gamePlayer.getWidth(), gamePlayer.getHeight()))
 			.with(new CollidableComponent(true))
 			.buildAndAttach();
 
 		FXGL.entityBuilder()
-			.type(EntityType.COIN)
-			.at(500, 200)
-			.viewWithBBox(new Circle(15, 15, 15, Color.YELLOW))
+			.type(ActorType.CANYON)
+			.viewWithBBox(new Circle(canyon.getCenterX(), canyon.getCenterY(), canyon.getRadius(), Color.YELLOW))
 			.with(new CollidableComponent(true))
 			.buildAndAttach();
+
+		ObstacleFactory.buildForGame(game, 10);
+		for (Obstacle o : game.getObstacles()) {
+			FXGL.entityBuilder()
+				.type(ActorType.WALL)
+				.at(o.getX(), o.getY())
+				.viewWithBBox(FXGL.texture(o.getTexture(), o.getWidth(), o.getHeight()))
+				.with(new CollidableComponent(true))
+				.buildAndAttach();
+		}
+
+		FXGL.run(() -> {
+			Enemy enemy = new Enemy();
+			FXGL.entityBuilder()
+                .type(ActorType.ENEMY)
+				.at(W / 2 - 30 / 2, H / 2 - 20 / 2)
+                .viewWithBBox(FXGL.texture("sprite_bullet.png", 30, 20))
+                .with((new AutoRotationComponent()).withSmoothing())
+                .with(enemy)
+                .collidable()
+                .buildAndAttach();
+		}, Duration.seconds(1));
+
+		FXGL.run(() -> {
+			FXGL.inc("score", 1);
+		}, Duration.seconds(5));
 	}
 
 	@Override
 	protected void initPhysics() {
-		FXGL.getPhysicsWorld().addCollisionHandler(new CollisionHandler(EntityType.PLAYER, EntityType.COIN) {
+		FXGL.getPhysicsWorld().addCollisionHandler(new CollisionHandler(ActorType.PLAYER, ActorType.COIN) {
 
 			// order of types is the same as passed into the constructor
 			@Override
@@ -58,17 +93,13 @@ public class App extends GameApplication {
 			}
 		});
 
-		FXGL.getPhysicsWorld().addCollisionHandler(new CollisionHandler(EntityType.PLAYER, EntityType.WALL) {
+		FXGL.getPhysicsWorld().addCollisionHandler(new CollisionHandler(ActorType.PLAYER, ActorType.WALL) {
 
 			// order of types is the same as passed into the constructor
 			@Override
 			protected void onCollisionBegin(Entity player, Entity wall) {
 				int threshold = 10;
-
-				FXGL.inc("score", -1);
-				int score = FXGL.getWorldProperties().intProperty("score").intValue();
-				FXGL.set("scoreText", "Score: " + String.valueOf(score));
-
+				
 				var px1 = player.getX();
 				var px2 = player.getRightX();
 				var py1 = player.getY();
@@ -78,9 +109,6 @@ public class App extends GameApplication {
 				var wx2 = wall.getRightX();
 				var wy1 = wall.getY();
 				var wy2 = wall.getBottomY();
-
-				System.out.println("PLAYER: x=(" + px1 + ", " + px2 + ") | y=(" + py1 + ", " + py2 + ")");
-				System.out.println("WALL:   x=(" + wx1 + ", " + wx2 + ") | y=(" + wy1 + ", " + wy2 + ")");
 
 				if ((px1 >= wx1 || px1 <= wx1) && (py2 >= wy1 && py2 <= wy1 + threshold)) {
 					// Up and (right or left)
@@ -94,6 +122,32 @@ public class App extends GameApplication {
 				} else if ((py1 <= wy1 || py1 >= wy1) && (px2 >= wx1 && px2 <= wx1 + threshold)) {
 					// Left and (up or down)
 					player.setX(px1 - threshold);
+				}
+			}
+		});
+
+		FXGL.getPhysicsWorld().addCollisionHandler(new CollisionHandler(ActorType.ENEMY, ActorType.WALL) {
+
+			// order of types is the same as passed into the constructor
+			@Override
+			protected void onCollisionBegin(Entity enemy, Entity wall) {
+				enemy.removeFromWorld();
+			}
+		});
+
+		FXGL.getPhysicsWorld().addCollisionHandler(new CollisionHandler(ActorType.ENEMY, ActorType.PLAYER) {
+
+			// order of types is the same as passed into the constructor
+			@Override
+			protected void onCollisionBegin(Entity enemy, Entity player) {
+				FXGL.inc("lives", -1);
+				if (FXGL.geti("lives") <= 0) {
+					FXGL.getDialogService().showMessageBox(
+						"Game Over",
+						() -> FXGL.getGameController().exit()
+					);
+				} else {
+					player.setPosition(10, 10);
 				}
 			}
 		});
@@ -113,52 +167,37 @@ public class App extends GameApplication {
 		FXGL.onKey(KeyCode.S, () -> {
 				player.translateY(5); // move down 5 pixels
 			});
-			
-		FXGL.onKeyDown(KeyCode.F, () -> {
-			FXGL.play("drop.wav");
-		}); 
 	}
 
 	@Override
 	protected void initUI() {
-		Text textScore = new Text();
-		textScore.setTranslateX(5); // x = 5
-		textScore.setTranslateY(10); // y = 10
+		Text scoreLabel = FXGL.getUIFactoryService().newText("Score", Color.BLACK, 22);
+        Text scoreValue = FXGL.getUIFactoryService().newText("", Color.BLACK, 22);
+        Text livesLabel = FXGL.getUIFactoryService().newText("Lives", Color.BLACK, 22);
+        Text livesValue = FXGL.getUIFactoryService().newText("", Color.BLACK, 22);
 
-		textScore.textProperty().bind(FXGL.getWorldProperties().stringProperty("scoreText"));
+        scoreLabel.setTranslateX(20);
+        scoreLabel.setTranslateY(20);
 
-		FXGL.getGameScene().addUINode(textScore); // add to the scene graph
+        scoreValue.setTranslateX(90);
+        scoreValue.setTranslateY(20);
 
-		//var b1 = FXGL.getAssetLoader().loadTexture("brick.png");
-		//b1.setTranslateX(50);
-		//b1.setTranslateY(450);
-		var b1 = FXGL.entityBuilder()
-			.type(EntityType.WALL)
-			.at(50, 450)
-			.viewWithBBox("brick.png")
-			.with(new CollidableComponent(true))
-			.buildAndAttach();
-		var x = b1.getWidth();
-		var y = b1.getHeight();
+        livesLabel.setTranslateX(FXGL.getAppWidth() - 150);
+        livesLabel.setTranslateY(20);
 
-		//var b2 = FXGL.getAssetLoader().loadTexture("brick.png");
-		//b2.setTranslateX(50 + x);
-		//b2.setTranslateY(450);
-		var b2 = FXGL.entityBuilder()
-			.type(EntityType.WALL)
-			.at(50 + x, 450)
-			.viewWithBBox("brick.png")
-			.with(new CollidableComponent(true))
-			.buildAndAttach();
+        livesValue.setTranslateX(FXGL.getAppWidth() - 80);
+        livesValue.setTranslateY(20);
 
-		//FXGL.getGameScene().addUINode(b1);
-		//FXGL.getGameScene().addUINode(b2);
+        scoreValue.textProperty().bind(FXGL.getWorldProperties().intProperty("score").asString());
+        livesValue.textProperty().bind(FXGL.getWorldProperties().intProperty("lives").asString());
+
+        FXGL.getGameScene().addUINodes(scoreLabel, scoreValue, livesLabel, livesValue);
 	}
 
 	@Override
 	protected void initGameVars(Map<String, Object> vars) {
-		vars.put("scoreText", "Score: 0");
 		vars.put("score", 0);
+		vars.put("lives", 3);
 	}
 
     public static void main(String[] args) {

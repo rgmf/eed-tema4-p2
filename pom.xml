@@ -10,6 +10,14 @@
         <maven.compiler.target>17</maven.compiler.target>
     </properties>
     <dependencies>
+
+        <dependency>
+            <groupId>junit</groupId>
+            <artifactId>junit</artifactId>
+            <version>4.13.2</version>
+            <scope>test</scope>
+        </dependency>
+
         <dependency>
             <groupId>org.openjfx</groupId>
             <artifactId>javafx-controls</artifactId>
@@ -45,6 +53,16 @@
                         </configuration>
                     </execution>
                 </executions>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <version>3.0.0-M5</version> <!-- Versión actualizada -->
+                <configuration>
+                    <includes>
+                        <include>**/*Test.java</include> <!-- Incluye todos los archivos de prueba -->
+                    </includes>
+                </configuration>
             </plugin>
         </plugins>
     </build>
